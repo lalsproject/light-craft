@@ -1,0 +1,956 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 5a5488a..9d9af85 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -76,7 +76,7 @@ L0 `geom`, `color`, `raster`, `fetch`, `sysmem`, `wincolor` -> L1 `raw`, `codecs
+ - `cargo xtask roots` checks the `#![deny(clippy::unwrap_used, ...)]` and `#![forbid(unsafe_code)]` crate-root attributes; crates use `[lints] workspace = true`.
+ 
+ ### Paths and conventions
+-- `unsafe` is allowed only in `crates/sysmem` and `crates/wincolor`.
++- `unsafe` is allowed only in `crates/sysmem`, `crates/wincolor` and `apps/lightcraft-android/src/entry.rs` (the `#[unsafe(no_mangle)]` `android_main` that `android-activity` looks up by name).
+ - Attribution file: `assets/ATTRIBUTION.md`; `cargo xtask assets` checks it. Brand files in `docs/brand/` are trademarks under `docs/brand/LICENSE-brand.txt`.
+ - Fonts come from storytold/craft-fonts through `CRAFT_FONTS_DIR`; Inter in `assets/fonts/` is the one font kept here. Releases set `CRAFT_FONTS_REQUIRED=1`.
+ - Test corpora: `cargo xtask corpus --download` into the gitignored `corpus/`; shared PSDs are in storytold/photocraft-corpus.
+diff --git a/Cargo.lock b/Cargo.lock
+index f9f2638..cba7335 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -189,6 +189,15 @@ dependencies = [
+  "zerocopy",
+ ]
+ 
++[[package]]
++name = "aho-corasick"
++version = "1.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
++dependencies = [
++ "memchr",
++]
++
+ [[package]]
+ name = "aligned"
+ version = "0.4.3"
+@@ -268,6 +277,23 @@ version = "0.2.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "fc7eb209b1518d6bb87b283c20095f5228ecda460da70b44f0802523dea6da04"
+ 
++[[package]]
++name = "android_log-sys"
++version = "0.3.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "84521a3cf562bc62942e294181d9eef17eb38ceb8c68677bc49f144e4c3d4f8d"
++
++[[package]]
++name = "android_logger"
++version = "0.15.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "dbb4e440d04be07da1f1bf44fb4495ebd58669372fe0cffa6e48595ac5bd88a3"
++dependencies = [
++ "android_log-sys",
++ "env_filter",
++ "log",
++]
++
+ [[package]]
+ name = "android_system_properties"
+ version = "0.1.6"
+@@ -2229,6 +2255,16 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "env_filter"
++version = "0.1.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1bf3c259d255ca70051b30e2e95b5446cdb8949ac4cd22c0d7fd634d89f568e2"
++dependencies = [
++ "log",
++ "regex",
++]
++
+ [[package]]
+ name = "epaint"
+ version = "0.37.0"
+@@ -4045,6 +4081,23 @@ dependencies = [
+  "zbus",
+ ]
+ 
++[[package]]
++name = "lightcraft-android"
++version = "0.21.1"
++dependencies = [
++ "android_logger",
++ "eframe",
++ "egui",
++ "lightcraft-codecs",
++ "lightcraft-engine",
++ "lightcraft-raster",
++ "lightcraft-ui-egui",
++ "log",
++ "pollster 1.0.1",
++ "serde_json",
++ "winit",
++]
++
+ [[package]]
+ name = "lightcraft-catalog"
+ version = "0.21.1"
+@@ -6244,6 +6297,29 @@ dependencies = [
+  "bitflags 2.13.2",
+ ]
+ 
++[[package]]
++name = "regex"
++version = "1.13.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
++dependencies = [
++ "aho-corasick",
++ "memchr",
++ "regex-automata",
++ "regex-syntax",
++]
++
++[[package]]
++name = "regex-automata"
++version = "0.4.18"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
++dependencies = [
++ "aho-corasick",
++ "memchr",
++ "regex-syntax",
++]
++
+ [[package]]
+ name = "regex-syntax"
+ version = "0.8.11"
+diff --git a/README.md b/README.md
+index 432cd16..34c2e47 100644
+--- a/README.md
++++ b/README.md
+@@ -571,7 +571,7 @@ Humans and agents follow the same rules, so read [AGENTS.md](AGENTS.md) first. T
+   [storytold/craft-fonts](https://github.com/storytold/craft-fonts), not here.
+ - The shared rules, including the checks to run for the crates you change, are in [AGENTS.md](AGENTS.md).
+ - **Never crash.** Non-test code returns errors instead of panicking: no `unwrap()`, `expect()`, `panic!` or
+-  `unsafe` (outside `crates/sysmem` and `crates/wincolor`), checked indexing on anything derived from input, and a
++  `unsafe` (outside `crates/sysmem`, `crates/wincolor` and the Android entry point), checked indexing on anything derived from input, and a
+   regression test with every crash fix. Details in [AGENTS.md](AGENTS.md) (rules 13 and 29).
+ 
+ Questions, ideas or a bug you'd like to talk through first? Bring them to [Discord](https://discord.gg/artcraft).
+diff --git a/apps/lightcraft-android/Cargo.toml b/apps/lightcraft-android/Cargo.toml
+new file mode 100644
+index 0000000..f1d22a8
+--- /dev/null
++++ b/apps/lightcraft-android/Cargo.toml
+@@ -0,0 +1,57 @@
++[package]
++name = "lightcraft-android"
++version.workspace = true
++edition.workspace = true
++license.workspace = true
++publish = false
++description = "LightCraft for Android 9+ (API 28) on ARMv7 and other ABIs: the egui app as a NativeActivity library (build with packaging/android/build.sh)"
++
++[lints]
++workspace = true
++
++# `cargo apk` loads the `cdylib`; the `rlib` lets the host-independent parts (paths, settings file) be tested on the desktop.
++[lib]
++name = "lightcraft_android"
++crate-type = ["cdylib", "rlib"]
++
++[dependencies]
++lightcraft-engine = { workspace = true }
++lightcraft-ui-egui = { workspace = true }
++lightcraft-codecs = { workspace = true }
++lightcraft-raster = { workspace = true }
++serde_json = { workspace = true }
++log = { workspace = true }
++
++[target.'cfg(target_os = "android")'.dependencies]
++# No `clipboard` (arboard has no Android backend) and no `accesskit` (winit's has none either).
++eframe = { workspace = true, features = ["default_fonts", "wgpu", "glow", "android-native-activity"] }
++egui = { workspace = true }
++winit = { version = "0.30", default-features = false, features = ["android-native-activity", "rwh_06"] }
++pollster = { workspace = true }
++android_logger = "0.15"
++
++# What `cargo apk build -p lightcraft-android` turns into the manifest. Android 9 is API 28.
++[package.metadata.android]
++package = "ai.storyteller.lightcraft"
++build_targets = ["armv7-linux-androideabi"]
++# the app reads photos from shared storage (permission is granted in Settings ▸ Apps ▸ LightCraft)
++[[package.metadata.android.uses_permission]]
++name = "android.permission.READ_EXTERNAL_STORAGE"
++[[package.metadata.android.uses_permission]]
++name = "android.permission.WRITE_EXTERNAL_STORAGE"
++[[package.metadata.android.uses_permission]]
++name = "android.permission.INTERNET"
++
++[package.metadata.android.sdk]
++min_sdk_version = 28
++# 28 keeps the classic storage model (no scoped storage) on Android 10 and later once the permission is granted
++target_sdk_version = 28
++
++[package.metadata.android.application]
++label = "LightCraft"
++debuggable = false
++extract_native_libs = true
++
++[package.metadata.android.application.activity]
++config_changes = "orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode|density|keyboard|navigation"
++launch_mode = "singleTask"
+diff --git a/apps/lightcraft-android/src/entry.rs b/apps/lightcraft-android/src/entry.rs
+new file mode 100644
+index 0000000..a06bc22
+--- /dev/null
++++ b/apps/lightcraft-android/src/entry.rs
+@@ -0,0 +1,13 @@
++//! The one `unsafe` item of the Android app. `android-activity` finds the app by looking up the
++//! symbol `android_main` in the library, so it must keep its name (`#[unsafe(no_mangle)]`);
++//! everything it does is in safe code (`host`).
++#![allow(unsafe_code)]
++
++use winit::platform::android::activity::AndroidApp;
++
++// SAFETY: `android_main` is the symbol `android-activity` loads the app through; nothing else in the library
++// is named like it, and the function itself does only safe things.
++#[unsafe(no_mangle)]
++fn android_main(app: AndroidApp) {
++    crate::host::run(app);
++}
+diff --git a/apps/lightcraft-android/src/host.rs b/apps/lightcraft-android/src/host.rs
+new file mode 100644
+index 0000000..0899c5d
+--- /dev/null
++++ b/apps/lightcraft-android/src/host.rs
+@@ -0,0 +1,227 @@
++//! Starting LightCraft inside the activity: folders, settings, the window's renderer, the library
++//! and the platform services. Mirrors `apps/lightcraft/src/main.rs` for what an Android phone has.
++
++use crate::{paths, prefs};
++use eframe::egui_wgpu::{WgpuConfiguration, WgpuSetup};
++use lightcraft_engine::Session;
++use lightcraft_engine::gpu::backend::{self, Backends, WindowRenderer};
++use lightcraft_ui_egui::panels::library_problem::LibraryProblem;
++use lightcraft_ui_egui::{LightcraftApp, Services, UiState};
++use winit::platform::android::activity::AndroidApp;
++
++/// How long quitting waits for renders that are running (the desktop app's value).
++const EXIT_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
++
++/// Runs until the activity ends. Failures are logged (`logcat -s LightCraft`): there is no console.
++pub fn run(app: AndroidApp) {
++    android_logger::init_once(android_logger::Config::default().with_tag("LightCraft").with_max_level(log::LevelFilter::Info));
++    if let Err(e) = start(app) {
++        log::error!("LightCraft stopped: {e}");
++    }
++}
++
++fn start(android: AndroidApp) -> Result<(), String> {
++    let internal = android.internal_data_path().ok_or("Android gave the app no private data folder")?;
++    let external = android.external_data_path();
++    let dirs = paths::dirs(&internal, external.as_deref());
++    // before anything asks the engine for the config folder or the default library
++    lightcraft_engine::config::set_data_root(internal);
++    for d in [&dirs.config, &dirs.logs] {
++        if let Err(e) = std::fs::create_dir_all(d) {
++            log::warn!("can't create {}: {e}", d.display());
++        }
++    }
++    lightcraft_engine::guard::install_hook(dirs.logs.join("panic.log"));
++    log::info!("LightCraft {}, config {}, library {}", env!("CARGO_PKG_VERSION"), dirs.config.display(), dirs.library.display());
++
++    let (saved, prefs_warning, keep_prefs_file) = prefs::load(&dirs.prefs);
++    if let Some(ui) = &saved {
++        lightcraft_ui_egui::i18n::set_language(ui.language);
++    }
++    // GPU compute stays off until Settings turns it on: phone drivers differ a lot, and a crash in
++    // one kills the app with nothing to show for it
++    let first_run = saved.is_none();
++    let gpu_on = saved.as_ref().is_some_and(|u| u.settings.gpu);
++    lightcraft_engine::gpu::set_enabled(gpu_on);
++
++    let marker = dirs.config.join("window-renderer-armed");
++    let (renderer, wgpu_options, which) = choose_renderer(&marker);
++
++    let places: Vec<(String, String)> = paths::shared_places(&paths::shared_root(std::env::var_os("EXTERNAL_STORAGE")), |p| p.is_dir())
++        .into_iter()
++        .map(|(name, p)| (lightcraft_ui_egui::i18n::tr(name).to_string(), p.to_string_lossy().into_owned()))
++        .collect();
++    let log_file = dirs.logs.join("panic.log");
++    let prefs_path = dirs.prefs.clone();
++    let library = dirs.library.clone();
++    let shared_ok = places.first().is_none_or(|(_, p)| std::fs::read_dir(p).is_ok());
++
++    let options = eframe::NativeOptions {
++        android_app: Some(android),
++        renderer,
++        wgpu_options,
++        viewport: egui::ViewportBuilder::default().with_title("LightCraft"),
++        ..Default::default()
++    };
++    let started = eframe::run_native(
++        "LightCraft",
++        options,
++        Box::new(move |cc| {
++            // the window's renderer is up
++            let _ = std::fs::remove_file(&marker);
++            let (mut session, problem) = open_session(&library);
++            let mut app = LightcraftApp::new(session_with_defaults(&mut session), services(places, Some(log_file)));
++            if let Some(ui) = saved {
++                app.ui = ui;
++            }
++            lightcraft_ui_egui::i18n::set_language(app.ui.language);
++            if first_run {
++                app.ui.settings.gpu = false;
++            }
++            app.notices.extend(prefs_warning);
++            if !shared_ok {
++                app.notices.push(
++                    lightcraft_ui_egui::i18n::tr(
++                        "LightCraft can't read your photos yet. Allow Storage in Android Settings ▸ Apps ▸ LightCraft ▸ Permissions, then reopen the app.",
++                    )
++                    .to_string(),
++                );
++            }
++            app.gpu_notice = false;
++            app.disk_space_notice = true;
++            if problem.is_none() {
++                lightcraft_ui_egui::panels::empty_library::open_on_empty_library(&mut app);
++            }
++            app.library_problem = problem;
++            let writer = prefs::Writer::new(prefs_path, &app.ui, keep_prefs_file);
++            let _ = &cc.egui_ctx;
++            Ok(Box::new(App { app, prefs: writer }))
++        }),
++    );
++    started.map_err(|e| format!("the window ({}) ended with an error: {e}", which.name()))
++}
++
++/// The library at `dir`, or when it can't be opened an empty in-memory session and the problem to
++/// show (never a silent replacement, as on the desktop).
++fn open_session(dir: &std::path::Path) -> (Session, Option<LibraryProblem>) {
++    let fresh = || Session::new().with_fs().with_default_denoise_models().with_system_clock();
++    let mut s = fresh();
++    match s.open_library(dir, true) {
++        Ok(r) => {
++            let replayed = r.replayed;
++            log::info!("library {}: {} photos, {replayed} log records replayed", dir.display(), s.catalog.len());
++            (s, None)
++        }
++        Err(e) => {
++            log::error!("can't open library {}: {e}", dir.display());
++            (fresh(), Some(LibraryProblem::new(dir.to_string_lossy(), e.to_string())))
++        }
++    }
++}
++
++/// Lens profiles and the model folders, as the desktop app sets them (no SAM 3 model: too big for a
++/// 32-bit address space).
++fn session_with_defaults(session: &mut Session) -> Session {
++    let s = std::mem::replace(session, Session::new());
++    let mut s = s.with_default_lens_database().with_lens_auto_download();
++    s.face_models_dir = lightcraft_engine::config::default_face_models_dir();
++    s.slide_templates_dir = lightcraft_engine::config::config_dir().map(|d| d.join(lightcraft_engine::slide_template::DIR_NAME));
++    s
++}
++
++fn services(places: Vec<(String, String)>, log_file: Option<std::path::PathBuf>) -> Services {
++    Services {
++        // no system file dialog on Android: Local browses these folders
++        local_places: Some(places),
++        log_file: log_file.map(|p| p.display().to_string()),
++        write_shared: Some(std::sync::Arc::new(lightcraft_engine::export::write_file)),
++        write: Some(Box::new(lightcraft_engine::export::write_file)),
++        write_new: Some(Box::new(lightcraft_engine::export::write_file_new)),
++        png: Some(Box::new(|img: &lightcraft_raster::Rgba8| {
++            lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(img), &lightcraft_codecs::EncodeMeta::default()).unwrap_or_default()
++        })),
++        ..Default::default()
++    }
++}
++
++/// Vulkan when an adapter that is not a software one answers, else glow (OpenGL ES). A marker file
++/// names the renderer being started: left behind, the last start died in it and it goes last.
++fn choose_renderer(marker: &std::path::Path) -> (eframe::Renderer, WgpuConfiguration, WindowRenderer) {
++    let failed = std::fs::read_to_string(marker).ok().and_then(|s| WindowRenderer::parse(s.trim()));
++    let forced =
++        backend::forced_window_renderer(std::env::var("LIGHTCRAFT_GPU_BACKEND").ok().as_deref(), std::env::var("WGPU_BACKEND").ok().as_deref());
++    let order = backend::window_renderer_order(forced, None, failed, "android", eframe::wgpu::Instance::enabled_backend_features(), true);
++    let mut which = WindowRenderer::Glow;
++    for r in order {
++        let usable = match r {
++            WindowRenderer::Glow => true,
++            WindowRenderer::Wgpu(b) => std::panic::catch_unwind(|| has_hardware_adapter(b)).unwrap_or(false),
++        };
++        if usable {
++            which = r;
++            break;
++        }
++        log::warn!("window: no usable {} adapter, trying the next renderer", r.name());
++    }
++    log::info!("window: renderer {}", which.name());
++    let _ = std::fs::write(marker, which.name());
++    let mut wgpu_options = eframe::NativeOptions::default().wgpu_options;
++    let renderer = match which {
++        WindowRenderer::Glow => eframe::Renderer::Glow,
++        WindowRenderer::Wgpu(b) => {
++            if let WgpuSetup::CreateNew(n) = &mut wgpu_options.wgpu_setup {
++                n.instance_descriptor.backends = b;
++            }
++            eframe::Renderer::Wgpu
++        }
++    };
++    (renderer, wgpu_options, which)
++}
++
++/// Whether `backends` has an adapter that isn't a CPU rasteriser (a phone's Vulkan loader can be
++/// there without a driver behind it).
++fn has_hardware_adapter(backends: Backends) -> bool {
++    let mut desc = eframe::wgpu::InstanceDescriptor::new_without_display_handle();
++    desc.backends = backends;
++    let instance = eframe::wgpu::Instance::new(desc);
++    pollster::block_on(instance.enumerate_adapters(backends)).iter().any(|a| a.get_info().device_type != eframe::wgpu::DeviceType::Cpu)
++}
++
++struct App {
++    app: LightcraftApp,
++    prefs: prefs::Writer,
++}
++
++impl eframe::App for App {
++    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
++        egui::Color32::from_rgb(12, 12, 12).to_normalized_gamma_f32()
++    }
++    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
++        self.app.logic(ctx);
++        let temporary = self.app.library_problem.as_ref().is_some_and(LibraryProblem::saves_nothing);
++        self.prefs.tick(&self.app.ui, temporary);
++    }
++    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
++        self.app.raw_input_hook(ctx, raw);
++    }
++    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
++        self.app.perf.host_frame_ms = frame.info().cpu_usage.map(|s| f64::from(s) * 1000.0);
++        self.app.ui(ui);
++    }
++    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
++        let temporary = self.app.library_problem.as_ref().is_some_and(LibraryProblem::saves_nothing);
++        if let Err(e) = self.prefs.save(&self.app.ui, temporary) {
++            log::error!("{e}");
++        }
++        if let Err(e) = self.app.session.close_library() {
++            log::error!("saving the library failed: {e}");
++        }
++        if !self.app.shutdown(EXIT_WAIT) {
++            log::warn!("quit: background work was still running after {EXIT_WAIT:?}");
++        }
++    }
++}
++
++// keep the type in the signature of `UiState`-consuming code visible to readers of this file
++#[allow(dead_code)]
++type Ui = UiState;
+diff --git a/apps/lightcraft-android/src/lib.rs b/apps/lightcraft-android/src/lib.rs
+new file mode 100644
+index 0000000..d775a13
+--- /dev/null
++++ b/apps/lightcraft-android/src/lib.rs
+@@ -0,0 +1,25 @@
++//! LightCraft for Android 9 and later (API 28+), built for `armv7-linux-androideabi` (32-bit ARM)
++//! and the other Android ABIs.
++//!
++//! The app is the desktop UI (`lightcraft-ui-egui`) in a `NativeActivity`: `android_main` (the only
++//! `unsafe` item, in `entry`) starts eframe. What differs from the desktop app:
++//!
++//! - **Folders.** Android has no home folder. Settings and logs live in the app's private data
++//!   folder, the library in its folder on shared storage when there is one (see [`paths`]).
++//! - **Photos.** There is no system file dialog: Local in the sidebar browses Camera, Pictures and
++//!   Downloads on shared storage (the permission is granted in Settings ▸ Apps ▸ LightCraft).
++//! - **Window.** Vulkan when the phone has a usable one, else glow (OpenGL ES): winit cannot create
++//!   its event loop twice, so the renderer is chosen before the window opens.
++//! - **GPU compute** starts off (Settings ▸ GPU turns it on) and AI masks (SAM 3, too big for a
++//!   32-bit address space) are not offered.
++//!
++//! See `docs/android.md` for building and the known limits.
++#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
++
++pub mod paths;
++pub mod prefs;
++
++#[cfg(target_os = "android")]
++mod entry;
++#[cfg(target_os = "android")]
++mod host;
+diff --git a/apps/lightcraft-android/src/paths.rs b/apps/lightcraft-android/src/paths.rs
+new file mode 100644
+index 0000000..88b9fcf
+--- /dev/null
++++ b/apps/lightcraft-android/src/paths.rs
+@@ -0,0 +1,76 @@
++//! Where the Android app keeps and finds things. Pure functions of the folders Android reports, so
++//! they run in the desktop tests too.
++
++use std::ffi::OsString;
++use std::path::{Path, PathBuf};
++
++/// Folder name of the library, as on the desktop.
++pub const LIBRARY_NAME: &str = "LightCraft Library";
++
++/// The app's own folders.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Dirs {
++    /// Settings, models and presets: `<private>/config` (the engine's data root, see
++    /// `lightcraft_engine::config::set_data_root`).
++    pub config: PathBuf,
++    /// The saved UI state and app settings.
++    pub prefs: PathBuf,
++    /// Log and panic files.
++    pub logs: PathBuf,
++    /// The library: in the app's folder on shared storage when Android gave one (more room than the
++    /// private folder, and the user can copy it off), else in the private folder.
++    pub library: PathBuf,
++}
++
++/// `internal` is the app's private data folder, `external` its folder on shared storage
++/// (`Android/data/<package>/files`, needs no permission) if there is one.
++pub fn dirs(internal: &Path, external: Option<&Path>) -> Dirs {
++    let config = internal.join("config");
++    Dirs { prefs: config.join("ui.json"), config, logs: internal.join("logs"), library: external.unwrap_or(internal).join(LIBRARY_NAME) }
++}
++
++/// The root of the primary shared storage: `$EXTERNAL_STORAGE` when Android sets it, else the
++/// usual path.
++pub fn shared_root(external_storage: Option<OsString>) -> PathBuf {
++    external_storage.filter(|p| !p.is_empty()).map_or_else(|| PathBuf::from("/storage/emulated/0"), PathBuf::from)
++}
++
++/// The photo folders of shared storage as (English name, path), those `is_dir` accepts. The names
++/// go through the translation system.
++pub fn shared_places(root: &Path, is_dir: impl Fn(&Path) -> bool) -> Vec<(&'static str, PathBuf)> {
++    [("Camera", "DCIM"), ("Pictures", "Pictures"), ("Downloads", "Download")]
++        .into_iter()
++        .map(|(name, sub)| (name, root.join(sub)))
++        .filter(|(_, p)| is_dir(p))
++        .collect()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn library_goes_to_shared_storage_when_there_is_a_folder_there() {
++        let d = dirs(Path::new("/data/user/0/app/files"), Some(Path::new("/storage/emulated/0/Android/data/app/files")));
++        assert!(d.library.starts_with("/storage/emulated/0/Android/data/app/files"));
++        assert!(d.config.starts_with("/data/user/0/app/files"));
++        assert!(d.prefs.starts_with(&d.config));
++        let d = dirs(Path::new("/data/user/0/app/files"), None);
++        assert!(d.library.starts_with("/data/user/0/app/files"));
++    }
++
++    #[test]
++    fn shared_root_falls_back_when_unset_or_empty() {
++        assert_eq!(shared_root(Some("/sdcard".into())), PathBuf::from("/sdcard"));
++        for v in [None, Some(OsString::new())] {
++            assert_eq!(shared_root(v), PathBuf::from("/storage/emulated/0"));
++        }
++    }
++
++    #[test]
++    fn only_existing_photo_folders_are_places() {
++        let places = shared_places(Path::new("/s"), |p| p.ends_with("DCIM") || p.ends_with("Download"));
++        let names: Vec<_> = places.iter().map(|(n, _)| *n).collect();
++        assert_eq!(names, ["Camera", "Downloads"]);
++    }
++}
+diff --git a/apps/lightcraft-android/src/prefs.rs b/apps/lightcraft-android/src/prefs.rs
+new file mode 100644
+index 0000000..5728cf2
+--- /dev/null
++++ b/apps/lightcraft-android/src/prefs.rs
+@@ -0,0 +1,164 @@
++//! The saved UI state and app settings (`<config>/ui.json`): reading it back and writing it.
++//! Android may end the process without a word, so the app saves while it runs, not only at exit.
++
++use lightcraft_ui_egui::UiState;
++use std::path::{Path, PathBuf};
++use std::time::{Duration, Instant};
++
++/// How often a changed state is written while the app runs.
++pub const SAVE_EVERY: Duration = Duration::from_secs(5);
++
++/// The saved state, with a message for the user when the file exists but can't be used. A damaged
++/// file is kept as `ui.json.corrupt-<unix time>` so the next save can't destroy it. The returned
++/// flag is `true` when nothing may be written this session (the file could not be read or set aside).
++pub fn load(path: &Path) -> (Option<UiState>, Option<String>, bool) {
++    let bytes = match std::fs::read(path) {
++        Ok(b) => b,
++        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (None, None, false),
++        Err(e) => return (None, Some(format!("The app settings ({}) couldn't be read: {e}. Defaults are used.", path.display())), true),
++    };
++    match decode(&bytes) {
++        Ok(ui) => (Some(ui.sanitized()), None, false),
++        Err(e) => {
++            let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
++            let keep = path.with_file_name(format!("ui.json.corrupt-{secs}"));
++            let kept = std::fs::rename(path, &keep);
++            let what = match &kept {
++                Ok(()) => format!("it was kept as {}", keep.display()),
++                Err(r) => format!("it couldn't be set aside ({r})"),
++            };
++            (None, Some(format!("The app settings ({}) are damaged ({e}); {what}. Defaults are used.", path.display())), kept.is_err())
++        }
++    }
++}
++
++/// The desktop app's decoding: an arrangement of panels from an older version starts again from the
++/// default, and a file from before the start-up dialog counts as an installation that has been run.
++pub fn decode(bytes: &[u8]) -> Result<UiState, String> {
++    let mut saved: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
++    let fields = saved.as_object_mut().ok_or("settings must be an object")?;
++    lightcraft_ui_egui::docking::drop_outdated(fields);
++    if fields.get("docking").is_some_and(|v| serde_json::from_value::<Option<lightcraft_ui_egui::docking::Workspace>>(v.clone()).is_err()) {
++        fields.remove("docking");
++    }
++    lightcraft_ui_egui::startup::migrate_legacy_seen_version(fields);
++    serde_json::from_value(saved).map_err(|e| e.to_string())
++}
++
++/// Write `bytes` to `path` atomically: a temp file, fsynced, renamed over it.
++pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
++    use std::io::Write;
++    let tmp = path.with_extension("json.tmp");
++    let written = (|| {
++        let mut f = std::fs::File::create(&tmp)?;
++        f.write_all(bytes)?;
++        f.sync_all()
++    })();
++    if let Err(e) = written {
++        let _ = std::fs::remove_file(&tmp);
++        return Err(e);
++    }
++    std::fs::rename(&tmp, path)
++}
++
++/// Saves the UI state when it changed, at most every [`SAVE_EVERY`], and on demand.
++pub struct Writer {
++    path: PathBuf,
++    written: Vec<u8>,
++    checked: Instant,
++    /// Never write (the file couldn't be read at launch).
++    keep_file: bool,
++    failing: bool,
++}
++
++impl Writer {
++    /// `current` is what the file holds now, so an unchanged state is not written again.
++    pub fn new(path: PathBuf, current: &UiState, keep_file: bool) -> Self {
++        Self { path, written: serde_json::to_vec_pretty(current).unwrap_or_default(), checked: Instant::now(), keep_file, failing: false }
++    }
++
++    /// Called every frame: writes when [`SAVE_EVERY`] has passed and the state changed.
++    pub fn tick(&mut self, ui: &UiState, temporary: bool) {
++        if self.checked.elapsed() < SAVE_EVERY {
++            return;
++        }
++        self.checked = Instant::now();
++        if let Err(e) = self.save(ui, temporary) {
++            // said once until a write works
++            if !self.failing {
++                log::error!("{e}");
++            }
++            self.failing = true;
++        } else {
++            self.failing = false;
++        }
++    }
++
++    /// Write `ui` now if it changed. `temporary`: the session promises to save nothing (the
++    /// library couldn't be opened).
++    pub fn save(&mut self, ui: &UiState, temporary: bool) -> Result<(), String> {
++        if self.keep_file || temporary {
++            return Ok(());
++        }
++        let bytes = serde_json::to_vec_pretty(ui).map_err(|e| e.to_string())?;
++        if bytes == self.written {
++            return Ok(());
++        }
++        if let Some(dir) = self.path.parent() {
++            std::fs::create_dir_all(dir).map_err(|e| format!("saving the app settings failed: {e}"))?;
++        }
++        write_atomic(&self.path, &bytes).map_err(|e| format!("saving the app settings failed: {e}"))?;
++        self.written = bytes;
++        Ok(())
++    }
++}
++
++#[cfg(test)]
++#[allow(clippy::unwrap_used)]
++mod tests {
++    use super::*;
++
++    fn dir(tag: &str) -> PathBuf {
++        let d = std::env::temp_dir().join(format!("lc-android-prefs-{tag}-{}", std::process::id()));
++        let _ = std::fs::remove_dir_all(&d);
++        std::fs::create_dir_all(&d).unwrap();
++        d
++    }
++
++    #[test]
++    fn what_is_saved_loads_back() {
++        let d = dir("roundtrip");
++        let path = d.join("ui.json");
++        let ui = UiState::default();
++        let mut w = Writer::new(path.clone(), &ui, false);
++        let mut changed = ui.clone();
++        changed.settings.gpu = !changed.settings.gpu;
++        w.save(&changed, false).unwrap();
++        let (loaded, warning, keep) = load(&path);
++        assert!(warning.is_none() && !keep);
++        assert_eq!(loaded.unwrap().settings.gpu, changed.settings.gpu);
++    }
++
++    #[test]
++    fn a_damaged_file_is_set_aside_not_overwritten() {
++        let d = dir("damaged");
++        let path = d.join("ui.json");
++        std::fs::write(&path, b"{ not json").unwrap();
++        let (loaded, warning, keep) = load(&path);
++        assert!(loaded.is_none() && warning.is_some() && !keep);
++        assert!(!path.exists());
++        assert!(std::fs::read_dir(&d).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("ui.json.corrupt-")));
++    }
++
++    #[test]
++    fn nothing_is_written_when_told_not_to() {
++        let d = dir("keep");
++        let path = d.join("ui.json");
++        let ui = UiState::default();
++        let mut changed = ui.clone();
++        changed.settings.gpu = !changed.settings.gpu;
++        Writer::new(path.clone(), &ui, true).save(&changed, false).unwrap();
++        Writer::new(path.clone(), &ui, false).save(&changed, true).unwrap();
++        assert!(!path.exists());
++    }
++}
+diff --git a/crates/engine/src/config.rs b/crates/engine/src/config.rs
+index f7b762a..e9421e0 100644
+--- a/crates/engine/src/config.rs
++++ b/crates/engine/src/config.rs
+@@ -3,11 +3,13 @@
+ //!
+ //! [`config_dir`] picks it, in order:
+ //! 1. `$LIGHTCRAFT_CONFIG_DIR`, when set (tests, agents, custom setups).
+-//! 2. **Portable mode** (issue #1200, as in PhotoCraft): a marker file ([`PORTABLE_MARKERS`]) beside the
++//! 2. The host's data root ([`set_data_root`]): `<root>/config`. Android has no home folder, so the app
++//!    gives its private data folder once at start-up; no other host sets it.
++//! 3. **Portable mode** (issue #1200, as in PhotoCraft): a marker file ([`PORTABLE_MARKERS`]) beside the
+ //!    executable puts everything in `<exe dir>/LightCraftData`, so a copy on a USB stick leaves nothing in
+ //!    `%APPDATA%`. If that folder can't be written (read-only medium, Program Files), a warning is logged
+ //!    and the platform folder is used.
+-//! 3. The platform convention: macOS `~/Library/Application Support/LightCraft`, Windows
++//! 4. The platform convention: macOS `~/Library/Application Support/LightCraft`, Windows
+ //!    `%APPDATA%\LightCraft`, Linux `$XDG_CONFIG_HOME/lightcraft` or `~/.config/lightcraft`.
+ //!
+ //! Hosts that have a file system (the desktop app, the CLI, the MCP server) share these defaults so a model
+@@ -26,6 +28,24 @@ pub const PORTABLE_MARKERS: [&str; 2] = ["portable.txt", "LightCraft.portable"];
+ /// The data folder created beside the executable in portable mode.
+ pub const PORTABLE_DATA_DIR: &str = "LightCraftData";
+ 
++static DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
++
++/// Name of the settings folder inside the data root ([`set_data_root`]).
++const DATA_ROOT_CONFIG: &str = "config";
++
++/// A host with no home folder (Android: the app's private data folder) names where per-user data
++/// lives, once, before anything reads [`config_dir`] or [`crate::library::default_dir`]. Returns
++/// `false` when a root was already set (the first one stays). `$LIGHTCRAFT_CONFIG_DIR` and
++/// `$LIGHTCRAFT_LIBRARY` still win over it.
++pub fn set_data_root(dir: PathBuf) -> bool {
++    DATA_ROOT.set(dir).is_ok()
++}
++
++/// The folder given to [`set_data_root`], if any.
++pub fn data_root() -> Option<&'static Path> {
++    DATA_ROOT.get().map(PathBuf::as_path)
++}
++
+ #[derive(Clone, Copy)]
+ enum Platform {
+     Mac,
+@@ -44,7 +64,15 @@ pub fn config_dir() -> Option<PathBuf> {
+     } else {
+         Platform::Other
+     };
+-    config_dir_with(platform, |name| std::env::var_os(name), portable_dir)
++    let env = |name: &str| std::env::var_os(name);
++    // the override stays the complete directory and beats the root; the root beats portable mode and
++    // the platform folders, which on Android (no `$HOME`, or one that isn't writable) are no use
++    if env("LIGHTCRAFT_CONFIG_DIR").is_none()
++        && let Some(root) = data_root()
++    {
++        return Some(root.join(DATA_ROOT_CONFIG));
++    }
++    config_dir_with(platform, env, portable_dir)
+ }
+ 
+ /// `portable` is asked only without an override, so an isolated run never probes beside the executable.
+diff --git a/crates/engine/src/library.rs b/crates/engine/src/library.rs
+index 261ef52..adf6d09 100644
+--- a/crates/engine/src/library.rs
++++ b/crates/engine/src/library.rs
+@@ -78,12 +78,17 @@ pub fn library_state(dir: &Path) -> std::io::Result<bool> {
+     Ok(false)
+ }
+ 
+-/// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `~/Pictures/LightCraft Library`
++/// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `<data root>/LightCraft Library` where
++/// the host gave one ([`crate::config::set_data_root`]; Android), else `~/Pictures/LightCraft Library`
+ /// (`%USERPROFILE%\Pictures\LightCraft Library` on Windows).
+ pub fn default_dir() -> Option<PathBuf> {
+     if let Some(p) = std::env::var_os("LIGHTCRAFT_LIBRARY").filter(|p| !p.is_empty()) {
+         return Some(PathBuf::from(p));
+     }
++    // a host with no home folder (Android) keeps the library in its data root
++    if let Some(root) = crate::config::data_root() {
++        return Some(root.join(DEFAULT_NAME));
++    }
+     let home = if cfg!(windows) { std::env::var_os("USERPROFILE") } else { std::env::var_os("HOME") }?;
+     Some(PathBuf::from(home).join("Pictures").join(DEFAULT_NAME))
+ }
+diff --git a/docs/android.md b/docs/android.md
+new file mode 100644
+index 0000000..b2cc21d
+--- /dev/null
++++ b/docs/android.md
+@@ -0,0 +1,58 @@
++# LightCraft on Android
++
++`apps/lightcraft-android` runs LightCraft on **Android 9 and later (API 28+)**, built for **ARMv7**
++(`armv7-linux-androideabi`, ABI `armeabi-v7a`). It is the desktop UI (`lightcraft-ui-egui`) in a
++`NativeActivity`, still pure Rust: no Java or Kotlin of our own.
++
++> **Status: builds for the target, not yet run on a device.** `cargo check`, clippy and the host-side
++> tests pass for `armv7-linux-androideabi`; the APK packaging (`cargo apk`) and everything that needs a
++> phone (renderer, storage permission, memory on 32-bit) are untested. Treat the first run as a
++> test run and read `adb logcat -s LightCraft`.
++
++## Build
++
++```sh
++export ANDROID_HOME=~/Android/Sdk                 # platform 28+ and build-tools installed
++export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
++packaging/android/build.sh debug                  # APK signed with the debug key
++packaging/android/build.sh                        # release; sign it, see below
++adb install -r target/debug/apk/lightcraft-android.apk
++```
++
++`ANDROID_TARGET=aarch64-linux-android packaging/android/build.sh` builds a 64-bit APK the same way
++(`build_targets` in `apps/lightcraft-android/Cargo.toml` lists what `cargo apk` builds by default).
++A release APK is signed through `[package.metadata.android.signing.release]` (a `path` and
++`keystore_password`), which belongs in your own checkout, not in the repository.
++
++## How it differs from the desktop app
++
++| | Desktop | Android |
++|---|---|---|
++| Folders | `~/Pictures/LightCraft Library`, `~/.config/lightcraft` | settings and logs in the app's private folder; the library in `Android/data/<package>/files/LightCraft Library` (private folder if there is none). `lightcraft_engine::config::set_data_root` |
++| Photos | system file dialog | none: **Local** browses Camera (`DCIM`), Pictures and Downloads on shared storage |
++| Window | wgpu (Vulkan/Metal/DX12), glow as the fallback | Vulkan when an adapter that is not a software one answers, else glow (OpenGL ES); a marker file in the config folder sends a renderer that crashed to the end of the line |
++| GPU compute | on | **off** on the first start; Settings ▸ GPU turns it on |
++| AI masks (SAM 3) | optional | not built in: the model does not fit a 32-bit address space |
++| Settings file | `ui.json`, written when the app quits and on a timer | `ui.json`, written every few seconds when it changed (Android can end the process without notice) |
++
++## Storage permission
++
++The manifest asks for `READ_EXTERNAL_STORAGE` and `WRITE_EXTERNAL_STORAGE` and targets API 28, so on
++Android 10 and later the classic storage model applies once the permission is granted. The app does
++**not** yet show the system permission prompt (that needs a JNI call): grant *Storage* in Settings ▸
++Apps ▸ LightCraft ▸ Permissions. Until then the app says so in a notice. Android 14 and 15 warn that an
++app targeting API 28 was built for an older version; it still installs and runs. The Play Store does not
++accept such an app, so this build is for sideloading.
++
++## Known limits and next steps
++
++- **32-bit memory.** A process on ARMv7 gets 2–3 GB of address space at most, and phones kill apps well
++  before that. Large RAWs and panorama or HDR merges may not fit. The engine's memory budget reads
++  `/proc/meminfo`; it has not been tuned for Android.
++- **No runtime permission prompt**, no system file/folder picker (`ACTION_OPEN_DOCUMENT`), no "Open in"
++  or share intents, no clipboard and no screen-reader support (arboard and accesskit have no Android
++  backend). Each needs JNI or Java glue.
++- **Touch.** The UI is the desktop layout; it takes touch input through egui but is not adapted to a
++  phone-sized screen.
++- **Packaging unverified.** The `[package.metadata.android]` keys follow `cargo-apk`'s documentation and
++  have not been run through `cargo apk build` yet.
+diff --git a/packaging/android/build.sh b/packaging/android/build.sh
+new file mode 100755
+index 0000000..0f9cad7
+--- /dev/null
++++ b/packaging/android/build.sh
+@@ -0,0 +1,28 @@
++#!/usr/bin/env bash
++# Builds the LightCraft APK for Android 9+ (API 28) on ARMv7 (armeabi-v7a).
++#   packaging/android/build.sh            # release APK (signed with the key named in the environment, see docs/android.md)
++#   packaging/android/build.sh debug      # debug APK, signed with the debug key
++# Needs: Rust (rustup), the Android SDK (platform 28+, build-tools) and NDK r26+.
++# Set ANDROID_HOME and ANDROID_NDK_ROOT (or ANDROID_NDK_HOME) before running.
++set -euo pipefail
++cd "$(dirname "$0")/../.."
++
++mode="${1:-release}"
++target="${ANDROID_TARGET:-armv7-linux-androideabi}"
++
++[[ -n "${ANDROID_HOME:-}" ]] || { echo "ANDROID_HOME is not set (the Android SDK folder)" >&2; exit 1; }
++if [[ -z "${ANDROID_NDK_ROOT:-}" && -z "${ANDROID_NDK_HOME:-}" ]]; then
++  echo "ANDROID_NDK_ROOT is not set (the NDK folder, r26 or newer)" >&2
++  exit 1
++fi
++export ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT:-$ANDROID_NDK_HOME}"
++export ANDROID_NDK_HOME="$ANDROID_NDK_ROOT"
++
++rustup target add "$target"
++command -v cargo-apk >/dev/null || cargo install cargo-apk --locked
++
++args=(apk build -p lightcraft-android --target "$target")
++[[ "$mode" == "release" ]] && args+=(--release)
++cargo "${args[@]}"
++
++find target -name 'lightcraft-android*.apk' -newer packaging/android/build.sh -print
+diff --git a/xtask/src/layers.rs b/xtask/src/layers.rs
+index f1e3ff6..39e437d 100644
+--- a/xtask/src/layers.rs
++++ b/xtask/src/layers.rs
+@@ -68,6 +68,7 @@ pub const TABLE: &[(&str, Class)] = &[
+     ("lightcraft", Class::Exempt),
+     ("cli", Class::Exempt),
+     ("web", Class::Exempt),
++    ("android", Class::Exempt),
+     ("xtask", Class::Exempt),
+ ];
+ 
+@@ -343,7 +344,7 @@ mod tests {
+ 
+     #[test]
+     fn apps_exempt() {
+-        for app in ["lightcraft", "lightcraft-cli", "lightcraft-web", "xtask"] {
++        for app in ["lightcraft", "lightcraft-cli", "lightcraft-web", "lightcraft-android", "xtask"] {
+             assert!(check(&[c(app, &[("egui", Normal, false), ("lightcraft-ui-egui", Normal, true)])]).is_empty());
+         }
+     }
+diff --git a/xtask/src/roots.rs b/xtask/src/roots.rs
+index 440229b..5d60be2 100644
+--- a/xtask/src/roots.rs
++++ b/xtask/src/roots.rs
+@@ -16,7 +16,7 @@ const DENY_LINTS: &[&str] =
+     &["clippy::unwrap_used", "clippy::expect_used", "clippy::panic", "clippy::unimplemented", "clippy::todo", "clippy::unreachable"];
+ 
+ /// Crate roots exempt from `forbid(unsafe_code)` (they still need the deny list).
+-const UNSAFE_EXCEPTION: &[&str] = &["lightcraft-sysmem", "lightcraft-wincolor"];
++const UNSAFE_EXCEPTION: &[&str] = &["lightcraft-sysmem", "lightcraft-wincolor", "lightcraft-android"];
+ 
+ #[derive(Debug, Clone)]
+ pub struct CrateRoot {

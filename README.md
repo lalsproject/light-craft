@@ -571,7 +571,7 @@ Humans and agents follow the same rules, so read [AGENTS.md](AGENTS.md) first. T
   [storytold/craft-fonts](https://github.com/storytold/craft-fonts), not here.
 - The shared rules, including the checks to run for the crates you change, are in [AGENTS.md](AGENTS.md).
 - **Never crash.** Non-test code returns errors instead of panicking: no `unwrap()`, `expect()`, `panic!` or
-  `unsafe` (outside `crates/sysmem` and `crates/wincolor`), checked indexing on anything derived from input, and a
+  `unsafe` (outside `crates/sysmem`, `crates/wincolor` and the Android entry point), checked indexing on anything derived from input, and a
   regression test with every crash fix. Details in [AGENTS.md](AGENTS.md) (rules 13 and 29).
 
 Questions, ideas or a bug you'd like to talk through first? Bring them to [Discord](https://discord.gg/artcraft).

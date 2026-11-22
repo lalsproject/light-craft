@@ -1,0 +1,57 @@
+[package]
+name = "lightcraft-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "LightCraft for Android 9+ (API 28) on ARMv7 and other ABIs: the egui app as a NativeActivity library (build with packaging/android/build.sh)"
+
+[lints]
+workspace = true
+
+# `cargo apk` loads the `cdylib`; the `rlib` lets the host-independent parts (paths, settings file) be tested on the desktop.
+[lib]
+name = "lightcraft_android"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+lightcraft-engine = { workspace = true }
+lightcraft-ui-egui = { workspace = true }
+lightcraft-codecs = { workspace = true }
+lightcraft-raster = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+# No `clipboard` (arboard has no Android backend) and no `accesskit` (winit's has none either).
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "glow", "android-native-activity"] }
+egui = { workspace = true }
+winit = { version = "0.30", default-features = false, features = ["android-native-activity", "rwh_06"] }
+pollster = { workspace = true }
+android_logger = "0.15"
+
+# What `cargo apk build -p lightcraft-android` turns into the manifest. Android 9 is API 28.
+[package.metadata.android]
+package = "ai.storyteller.lightcraft"
+build_targets = ["armv7-linux-androideabi"]
+# the app reads photos from shared storage (permission is granted in Settings ▸ Apps ▸ LightCraft)
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[package.metadata.android.sdk]
+min_sdk_version = 28
+# 28 keeps the classic storage model (no scoped storage) on Android 10 and later once the permission is granted
+target_sdk_version = 28
+
+[package.metadata.android.application]
+label = "LightCraft"
+debuggable = false
+extract_native_libs = true
+
+[package.metadata.android.application.activity]
+config_changes = "orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout|uiMode|density|keyboard|navigation"
+launch_mode = "singleTask"

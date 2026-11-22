@@ -3,11 +3,13 @@
 //!
 //! [`config_dir`] picks it, in order:
 //! 1. `$LIGHTCRAFT_CONFIG_DIR`, when set (tests, agents, custom setups).
-//! 2. **Portable mode** (issue #1200, as in PhotoCraft): a marker file ([`PORTABLE_MARKERS`]) beside the
+//! 2. The host's data root ([`set_data_root`]): `<root>/config`. Android has no home folder, so the app
+//!    gives its private data folder once at start-up; no other host sets it.
+//! 3. **Portable mode** (issue #1200, as in PhotoCraft): a marker file ([`PORTABLE_MARKERS`]) beside the
 //!    executable puts everything in `<exe dir>/LightCraftData`, so a copy on a USB stick leaves nothing in
 //!    `%APPDATA%`. If that folder can't be written (read-only medium, Program Files), a warning is logged
 //!    and the platform folder is used.
-//! 3. The platform convention: macOS `~/Library/Application Support/LightCraft`, Windows
+//! 4. The platform convention: macOS `~/Library/Application Support/LightCraft`, Windows
 //!    `%APPDATA%\LightCraft`, Linux `$XDG_CONFIG_HOME/lightcraft` or `~/.config/lightcraft`.
 //!
 //! Hosts that have a file system (the desktop app, the CLI, the MCP server) share these defaults so a model
@@ -25,6 +27,24 @@ use crate::Session;
 pub const PORTABLE_MARKERS: [&str; 2] = ["portable.txt", "LightCraft.portable"];
 /// The data folder created beside the executable in portable mode.
 pub const PORTABLE_DATA_DIR: &str = "LightCraftData";
+
+static DATA_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// Name of the settings folder inside the data root ([`set_data_root`]).
+const DATA_ROOT_CONFIG: &str = "config";
+
+/// A host with no home folder (Android: the app's private data folder) names where per-user data
+/// lives, once, before anything reads [`config_dir`] or [`crate::library::default_dir`]. Returns
+/// `false` when a root was already set (the first one stays). `$LIGHTCRAFT_CONFIG_DIR` and
+/// `$LIGHTCRAFT_LIBRARY` still win over it.
+pub fn set_data_root(dir: PathBuf) -> bool {
+    DATA_ROOT.set(dir).is_ok()
+}
+
+/// The folder given to [`set_data_root`], if any.
+pub fn data_root() -> Option<&'static Path> {
+    DATA_ROOT.get().map(PathBuf::as_path)
+}
 
 #[derive(Clone, Copy)]
 enum Platform {
@@ -44,7 +64,15 @@ pub fn config_dir() -> Option<PathBuf> {
     } else {
         Platform::Other
     };
-    config_dir_with(platform, |name| std::env::var_os(name), portable_dir)
+    let env = |name: &str| std::env::var_os(name);
+    // the override stays the complete directory and beats the root; the root beats portable mode and
+    // the platform folders, which on Android (no `$HOME`, or one that isn't writable) are no use
+    if env("LIGHTCRAFT_CONFIG_DIR").is_none()
+        && let Some(root) = data_root()
+    {
+        return Some(root.join(DATA_ROOT_CONFIG));
+    }
+    config_dir_with(platform, env, portable_dir)
 }
 
 /// `portable` is asked only without an override, so an isolated run never probes beside the executable.

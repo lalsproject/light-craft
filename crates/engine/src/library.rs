@@ -78,11 +78,16 @@ pub fn library_state(dir: &Path) -> std::io::Result<bool> {
     Ok(false)
 }
 
-/// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `~/Pictures/LightCraft Library`
+/// The default library location: `$LIGHTCRAFT_LIBRARY` if set, else `<data root>/LightCraft Library` where
+/// the host gave one ([`crate::config::set_data_root`]; Android), else `~/Pictures/LightCraft Library`
 /// (`%USERPROFILE%\Pictures\LightCraft Library` on Windows).
 pub fn default_dir() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("LIGHTCRAFT_LIBRARY").filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
+    }
+    // a host with no home folder (Android) keeps the library in its data root
+    if let Some(root) = crate::config::data_root() {
+        return Some(root.join(DEFAULT_NAME));
     }
     let home = if cfg!(windows) { std::env::var_os("USERPROFILE") } else { std::env::var_os("HOME") }?;
     Some(PathBuf::from(home).join("Pictures").join(DEFAULT_NAME))
