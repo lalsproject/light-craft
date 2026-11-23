@@ -1,0 +1,213 @@
+# Builds the LightCraft APK for Android 9+ (API 28) from apps/lightcraft-android.
+# Run it by hand: Actions ▸ Android APK ▸ Run workflow, then pick the architecture(s) from the menu.
+name: Android APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Architecture (ABI)"
+        type: choice
+        required: true
+        default: armv7
+        options:
+          - armv7        # armeabi-v7a, 32-bit ARM (older phones)
+          - arm64        # arm64-v8a, 64-bit ARM (nearly all current phones)
+          - x86_64       # emulators and Chromebooks
+          - x86          # old emulators
+          - all          # one APK per architecture above
+      build_type:
+        description: "Build type"
+        type: choice
+        required: true
+        default: release
+        options:
+          - release
+          - debug
+      release_tag:
+        description: "Optional: publish the APKs as a pre-release with this tag (e.g. android-v0.21.1)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  # bump to refresh the cached cargo-apk
+  CARGO_APK_CACHE: "1"
+  ANDROID_PLATFORM: "28"
+  ANDROID_BUILD_TOOLS: "34.0.0"
+  # cargo-apk 0.10 predates the newest NDKs (the runner image's default is r30): pin one it knows
+  ANDROID_NDK_VERSION: "26.3.11579264"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - id: matrix
+        env:
+          ARCH: ${{ inputs.arch }}
+        run: |
+          armv7='{"name":"armv7","abi":"armeabi-v7a","target":"armv7-linux-androideabi"}'
+          arm64='{"name":"arm64","abi":"arm64-v8a","target":"aarch64-linux-android"}'
+          x86_64='{"name":"x86_64","abi":"x86_64","target":"x86_64-linux-android"}'
+          x86='{"name":"x86","abi":"x86","target":"i686-linux-android"}'
+          case "$ARCH" in
+            armv7)  include="[$armv7]" ;;
+            arm64)  include="[$arm64]" ;;
+            x86_64) include="[$x86_64]" ;;
+            x86)    include="[$x86]" ;;
+            all)    include="[$armv7,$arm64,$x86_64,$x86]" ;;
+            *) echo "unknown architecture: $ARCH" >&2; exit 1 ;;
+          esac
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: APK (${{ matrix.name }}, ${{ inputs.build_type }})
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check that the Android app is in this commit
+        run: |
+          if [ ! -f apps/lightcraft-android/Cargo.toml ]; then
+            echo "::error::apps/lightcraft-android/Cargo.toml is not in this commit (${GITHUB_SHA}). Apply and commit the Android patch on this branch before running the workflow."
+            exit 1
+          fi
+          grep -q 'name = "lightcraft-android"' apps/lightcraft-android/Cargo.toml
+          ls apps
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: android-${{ matrix.target }}-${{ inputs.build_type }}
+
+      - name: Android SDK and NDK
+        run: |
+          set -euo pipefail
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "platforms;android-${ANDROID_PLATFORM}" "build-tools;${ANDROID_BUILD_TOOLS}" \
+            "ndk;${ANDROID_NDK_VERSION}" > /dev/null
+          ndk="$ANDROID_HOME/ndk/${ANDROID_NDK_VERSION}"
+          test -d "$ndk"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "NDK: $ndk"
+          ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
+
+      - name: Cache cargo-apk
+        id: cargo-apk
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-apk
+          key: cargo-apk-${{ runner.os }}-${{ env.CARGO_APK_CACHE }}
+
+      - name: Install cargo-apk
+        if: steps.cargo-apk.outputs.cache-hit != 'true'
+        run: cargo install cargo-apk --locked
+
+      - name: Signing key (release)
+        if: inputs.build_type == 'release'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keystore="$RUNNER_TEMP/release.keystore"
+          if [ -n "${KEYSTORE_BASE64:-}" ] && [ -n "${KEYSTORE_PASSWORD:-}" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$keystore"
+            password="$KEYSTORE_PASSWORD"
+            echo "SIGNING=your own key (secrets ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD)" >> "$GITHUB_ENV"
+          else
+            # no secrets: a throwaway key, good for installing and testing; an update signed with another key won't install over it
+            # (a random password: masking a common word such as "android" would blank it out of the whole log)
+            password="$(openssl rand -hex 16)"
+            keytool -genkeypair -v -keystore "$keystore" -storepass "$password" -keypass "$password" \
+              -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=LightCraft CI, O=LightCraft, C=US" > /dev/null
+            echo "SIGNING=a throwaway key generated for this run" >> "$GITHUB_ENV"
+          fi
+          echo "::add-mask::$password"
+          echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=$password" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          BUILD_TYPE: ${{ inputs.build_type }}
+        run: |
+          set -euo pipefail
+          flags=()
+          [ "$BUILD_TYPE" = "release" ] && flags+=(--release)
+          cargo apk build --manifest-path apps/lightcraft-android/Cargo.toml --target "${{ matrix.target }}" "${flags[@]}"
+
+      - name: Collect APK
+        env:
+          BUILD_TYPE: ${{ inputs.build_type }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          apk="$(find target -path "*/$BUILD_TYPE/apk/*.apk" | head -n 1)"
+          [ -n "$apk" ] || { echo "no APK was produced" >&2; exit 1; }
+          out="dist/lightcraft-${{ matrix.name }}-${BUILD_TYPE}.apk"
+          cp "$apk" "$out"
+          sha256sum "$out" | tee "$out.sha256"
+          {
+            echo "### ${{ matrix.name }} (${{ matrix.abi }}, $BUILD_TYPE)"
+            echo "- \`$(basename "$out")\`, $(du -h "$out" | cut -f1)"
+            [ "$BUILD_TYPE" = "release" ] && echo "- signed with ${SIGNING:-unknown}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lightcraft-${{ matrix.name }}-${{ inputs.build_type }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish pre-release
+    needs: build
+    if: inputs.release_tag != ''
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" dist/* --prerelease --target "$GITHUB_SHA" \
+              --title "LightCraft for Android $TAG" \
+              --notes "Android 9+ (API 28) builds. Sideload with \`adb install\` or the file manager; grant Storage in Settings ▸ Apps ▸ LightCraft ▸ Permissions." \
+              --repo "$GITHUB_REPOSITORY"
+          fi

@@ -158,6 +158,13 @@ pub struct LightcraftApp {
     pub perf: Perf,
     /// macOS: the host draws the traffic lights over our top bar.
     pub integrated_titlebar: bool,
+    /// A phone-sized screen with touch (Android): the window is the Lightroom-Mobile-style shell of
+    /// `panels::mobile` (bottom navigation, full-screen Library and Edit) instead of the docked desktop panels.
+    pub mobile: bool,
+    /// The tool whose sheet is open under the photo on the mobile Edit screen.
+    pub mobile_tool: Option<panels::mobile::Tool>,
+    /// The mobile Library screen's side drawer (folders, albums, Local) is open.
+    pub(crate) mobile_drawer: bool,
     /// The `movable` flag last given to the window (macOS, `craft_window::title_bar::sync_movable`).
     pub window_movable: Option<bool>,
     /// The host installed a native menu bar (no in-window menus then).

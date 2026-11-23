@@ -977,7 +977,9 @@ fn cell_interaction(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Res
         };
         let _ = app.run("library.select", json!({"ids": [id.0], "mode": mode}));
     }
-    if resp.double_clicked() {
+    // on a phone a tap opens the photo for editing (no double-click, no modifier keys)
+    let tapped = app.mobile && resp.clicked() && !ui.input(|i| i.modifiers.shift || i.modifiers.command);
+    if resp.double_clicked() || tapped {
         let _ = app.run("library.select", json!({"ids": [id.0]}));
         let _ = app.run("view.detail", json!({}));
     }

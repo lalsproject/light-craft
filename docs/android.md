@@ -12,17 +12,48 @@
 ## Build
 
 ```sh
-export ANDROID_HOME=~/Android/Sdk                 # platform 28+ and build-tools installed
+export ANDROID_HOME=~/Android/Sdk                 # platform 28 and build-tools installed
 export ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/26.3.11579264
-packaging/android/build.sh debug                  # APK signed with the debug key
-packaging/android/build.sh                        # release; sign it, see below
-adb install -r target/debug/apk/lightcraft-android.apk
+packaging/android/build.sh debug armv7            # APK signed with the debug key
+packaging/android/build.sh release arm64          # release; sign it, see below
+adb install -r target/lightcraft-armv7-linux-androideabi-debug.apk
 ```
 
-`ANDROID_TARGET=aarch64-linux-android packaging/android/build.sh` builds a 64-bit APK the same way
-(`build_targets` in `apps/lightcraft-android/Cargo.toml` lists what `cargo apk` builds by default).
-A release APK is signed through `[package.metadata.android.signing.release]` (a `path` and
-`keystore_password`), which belongs in your own checkout, not in the repository.
+The architectures are `armv7` (armeabi-v7a), `arm64` (arm64-v8a), `x86_64`, `x86` and `all`.
+A release APK is signed with the key named by `CARGO_APK_RELEASE_KEYSTORE` and
+`CARGO_APK_RELEASE_KEYSTORE_PASSWORD` (or `[package.metadata.android.signing.release]` in your own
+checkout, never in the repository).
+
+### GitHub Actions
+
+**Actions ▸ Android APK ▸ Run workflow** (`.github/workflows/android.yml`) builds from a menu:
+
+| Input | Choices |
+|---|---|
+| Architecture | `armv7`, `arm64`, `x86_64`, `x86`, `all` (one job and one APK per architecture) |
+| Build type | `release`, `debug` |
+| Release tag | optional: also publishes the APKs as a pre-release with this tag |
+
+The APKs are the run's artifacts. A release build is signed with the key in the repository secrets
+`ANDROID_KEYSTORE_BASE64` (the keystore, base64) and `ANDROID_KEYSTORE_PASSWORD`; without them it uses a
+throwaway key made for that run (fine for testing, but an update signed with another key does not
+install over it). The run's summary says which one signed each APK.
+
+## The phone layout
+
+The app opens in a Lightroom-Mobile-style layout (`lightcraft_ui_egui::panels::mobile`, switched on by
+`LightcraftApp::mobile`), made of the desktop's own panels:
+
+- **Library:** a top bar (folders menu, title and count, filter, add), the photos in three columns, and
+  a bottom bar (Library, Edit, Settings). A tap opens a photo. The menu opens a drawer with the desktop's
+  folders, albums and **Local**, which is how photos come in on a phone.
+- **Edit:** back, the file name, undo and redo on top; the photo; a sheet with the open tool's controls;
+  and a scrolling strip of tools under it (Presets, Light, Color, Effects, Detail, Optics, Crop, Masking,
+  Remove, Info). Tap the open tool again, or the chevron on the sheet, to close it.
+
+`lightcraft-cli snapshot --demo --mobile --size 390x844 --scale 2 -o phone.png` renders it without a
+phone. Not done yet: long-press to select several photos, swipe between photos, pinch to zoom, and a
+layout for landscape and tablets.
 
 ## How it differs from the desktop app
 

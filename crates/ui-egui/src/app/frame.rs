@@ -470,12 +470,16 @@ impl LightcraftApp {
         }
         // Order matters: earlier panels take the full edge (top bar spans the window; the tool strip,
         // right panels and left panel run to the bottom; the bottom bar sits between them).
-        panels::topbar::show(self, ui);
-        panels::library_problem::banner(self, ui);
-        panels::strip::show(self, ui);
-        // filled: the gaps the dock leaves between its panes show chrome, not the dark clear colour
-        let chrome = theme::Tokens::get(&ctx).chrome;
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chrome)).show(ui, |ui| docking::show(self, ui));
+        if self.mobile {
+            panels::mobile::show(self, ui);
+        } else {
+            panels::topbar::show(self, ui);
+            panels::library_problem::banner(self, ui);
+            panels::strip::show(self, ui);
+            // filled: the gaps the dock leaves between its panes show chrome, not the dark clear colour
+            let chrome = theme::Tokens::get(&ctx).chrome;
+            egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chrome)).show(ui, |ui| docking::show(self, ui));
+        }
         self.lights_out(&ctx);
         panels::second::show(self, &ctx);
         if notice_blocks {

@@ -4,7 +4,7 @@
 //! lightcraft-cli run [--demo | --library DIR | --connect [ADDR]] [--import PATH]… CMD [key=value…]…
 //! lightcraft-cli mcp [--connect [ADDR]] [--demo] [--compact] [FILES/FOLDERS…]
 //! lightcraft-cli render <in> -o <out> [--set control=value]… [--settings FILE.json|FILE.lcpreset] [--preset ID] [--size N] [--quality Q]
-//! lightcraft-cli snapshot [--library DIR | --demo] [--script FILE.jsonl] [-o OUT.png] [--size WxH] [--scale S] [FILES…]
+//! lightcraft-cli snapshot [--library DIR | --demo] [--script FILE.jsonl] [-o OUT.png] [--size WxH] [--scale S] [--mobile] [FILES…]
 //! lightcraft-cli merge hdr|panorama|hdr-panorama|hdr-batch [OPTIONS] FILES…
 //! lightcraft-cli synth-merge hdr|panorama -o DIR
 //! lightcraft-cli denoise-serve [--model ID] [--models DIR] [--listen ADDR] [--token-env VAR] [--run-on auto|gpu|cpu]
@@ -72,6 +72,8 @@ USAGE:
       Run the full app UI headlessly (no window, no GPU: CPU-rasterized egui) and write PNGs.
       Options:
         --demo            the procedural demo library (default unless --library or FILES)
+        --mobile          the phone layout (what the Android app shows); try --size 390x844 --scale 2
+        --mobile-tool T   with --mobile: open the tool sheet T (presets, light, color, effects, detail, optics, crop…)
         --library DIR     open (or create) a LightCraft library
         --script FILE     JSON-lines control-protocol requests (docs/control-protocol.md), one
                           per line: {\"method\": \"ui.set\", \"params\": {\"view\": \"detail\"}}.
@@ -834,11 +836,20 @@ fn snapshot(args: &[String]) -> Result<(), String> {
     let mut output: Option<String> = None;
     let mut size = [1600.0f32, 1000.0];
     let mut scale = 1.0f32;
+    let mut mobile = false;
+    let mut mobile_tool = None;
     let mut files = Vec::new();
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--demo" => {}
+            "--mobile" => mobile = true,
+            "--mobile-tool" => {
+                i += 1;
+                let name = args.get(i).ok_or("--mobile-tool needs a tool name")?;
+                mobile = true;
+                mobile_tool = Some(lightcraft_ui_egui::panels::mobile::Tool::parse(name).ok_or_else(|| format!("unknown tool '{name}'"))?);
+            }
             "--library" => library = Some(take_value(args, &mut i, "--library")?.to_string()),
             "--script" => script = Some(take_value(args, &mut i, "--script")?.to_string()),
             "-o" | "--output" => output = Some(take_value(args, &mut i, "-o")?.to_string()),
@@ -907,6 +918,8 @@ fn snapshot(args: &[String]) -> Result<(), String> {
     // before the first frame can start background adapter discovery.
     // This UI state is session-local: the CLI neither loads nor saves desktop ui.json.
     app.ui.settings.gpu = false;
+    app.mobile = mobile;
+    app.mobile_tool = mobile_tool;
     // as the desktop app opens it: an empty library on the grid, where Import is offered
     lightcraft_ui_egui::panels::empty_library::open_on_empty_library(&mut app);
     let mut h = Headless::new(app, size, scale);

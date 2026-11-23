@@ -61,7 +61,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             return;
         };
         // the Edit panel's histogram stays above its sliders as they scroll (#2679)
-        if app.ui.right == RightPanel::Edit && app.ui.histogram {
+        if app.ui.right == RightPanel::Edit && app.ui.histogram && !super::mobile::compact(app) {
             ui.spacing_mut().item_spacing.y = 0.0;
             super::edit::histogram(app, ui, id);
         }
