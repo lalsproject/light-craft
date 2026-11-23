@@ -80,7 +80,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check that the Android app is in this commit
         run: |
@@ -118,7 +118,7 @@ jobs:
 
       - name: Cache cargo-apk
         id: cargo-apk
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-apk
           key: cargo-apk-${{ runner.os }}-${{ env.CARGO_APK_CACHE }}
@@ -178,7 +178,7 @@ jobs:
             [ "$BUILD_TYPE" = "release" ] && echo "- signed with ${SIGNING:-unknown}"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lightcraft-${{ matrix.name }}-${{ inputs.build_type }}
           path: dist/*
@@ -192,7 +192,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
